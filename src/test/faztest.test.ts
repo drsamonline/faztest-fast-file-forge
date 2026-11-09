@@ -30,6 +30,7 @@ describe("Faztest command-line compressor", () => {
     const archive = `${input}.br`;
     expect((await readFile(archive)).length).toBeGreaterThan(0);
 
+    await rm(input);
     await execFile(process.execPath, [script, "decompress", archive]);
     expect(await readFile(input)).toEqual(source);
   });
@@ -55,5 +56,18 @@ describe("Faztest command-line compressor", () => {
     await expect(execFile(process.execPath, [script, "compress", input, "--level", "12"])).rejects.toThrow(
       "Quality must be a whole number from 0 to 11",
     );
+  });
+
+  it("runs a real benchmark and includes whichever installed comparison tools are available", async () => {
+    const directory = await makeWorkspace();
+    const input = path.join(directory, "sample.txt");
+    await writeFile(input, "A fair comparison checks both size and speed.\n".repeat(12));
+
+    const { stdout } = await execFile(process.execPath, [script, "bench", input, "--iterations", "1"]);
+    expect(stdout).toContain("Faztest · Brotli q5");
+    expect(stdout).toContain("COMPRESSION COMPARISON");
+    expect(stdout).toContain("xz · -5");
+    expect(stdout).toContain("7-Zip · LZMA2 level 5");
+    expect(stdout).toContain("median of trials");
   });
 });

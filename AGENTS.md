@@ -28,3 +28,6 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Faztest CLI
+- Keep the standalone Node.js compressor and benchmark in `public/faztest.mjs`; the `/` page must offer this same downloadable script rather than claiming to compress local files in the browser.
