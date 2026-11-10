@@ -121,7 +121,7 @@ function Faztest() {
             </div>
             <div className="border-l border-border pl-6">
               <p className="font-mono text-[11px] text-muted-foreground">PRICE</p>
-              <p className="mt-1 text-sm font-medium">Free · open source</p>
+              <p className="mt-1 text-sm font-medium">Free · no package install</p>
             </div>
           </div>
         </section>

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { performance } from "node:perf_hooks";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DEFAULT_QUALITY = 5;
 const QUALITIES = [1, 5, 9];
@@ -230,20 +230,31 @@ async function benchFile({ input, iterations }) {
   const results = [];
 
   console.log(`Faztest benchmark · ${input} · ${formatBytes(original.length)} · ${iterations} trial${iterations === 1 ? "" : "s"}`);
-  console.log("Testing single-thread compression. Ratios and speeds depend on your file, tool versions, and computer.\n");
+  console.log("Testing single-thread compression. All timings include a fresh process and reading the file.");
+  console.log("Ratios and speeds depend on your file, tool versions, and computer.\n");
 
   try {
     for (const quality of QUALITIES) {
       const times = [];
       let size = 0;
       for (let trial = 0; trial < iterations; trial += 1) {
+        const archive = path.join(scratch, `brotli-${quality}-${trial}.br`);
+        const restored = path.join(scratch, `brotli-${quality}-${trial}.out`);
         const started = performance.now();
-        const result = compressBuffer(original, quality);
+        await startProcess(process.execPath, [
+          fileURLToPath(import.meta.url),
+          "__bench-brotli",
+          path.resolve(input),
+          archive,
+          String(quality),
+        ]);
         times.push((performance.now() - started) / 1000);
-        if (sha256(brotliDecompressSync(result)) !== originalHash) {
+        size = (await stat(archive)).size;
+        const result = await readFile(archive);
+        await writeFile(restored, brotliDecompressSync(result));
+        if (sha256(await readFile(restored)) !== originalHash) {
           throw new Error(`Brotli quality ${quality} did not round-trip correctly.`);
         }
-        size = result.length;
       }
       results.push({ name: `Faztest · Brotli q${quality}`, size, seconds: median(times) });
     }
@@ -355,5 +366,19 @@ export async function runCli(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  await runCli();
+  if (process.argv[2] === "__bench-brotli") {
+    try {
+      const [input, output, qualityValue] = process.argv.slice(3);
+      if (!input || !output || !qualityValue || !/^\d+$/.test(qualityValue)) {
+        throw new Error("Invalid internal benchmark request.");
+      }
+      await writeFile(output, compressBuffer(await readFile(input), Number(qualityValue)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected benchmark error.";
+      console.error(`Faztest: ${message}`);
+      process.exitCode = 1;
+    }
+  } else {
+    await runCli();
+  }
 }
