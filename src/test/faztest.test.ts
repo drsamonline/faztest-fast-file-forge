@@ -46,6 +46,9 @@ describe("Faztest command-line compressor", () => {
       "Output already exists",
     );
     expect(await readFile(archive, "utf8")).toBe("do not overwrite");
+
+    await execFile(process.execPath, [script, "compress", input, "--force"]);
+    expect(await readFile(archive)).not.toEqual(Buffer.from("do not overwrite"));
   });
 
   it("rejects compression levels outside the supported 0–11 range", async () => {
