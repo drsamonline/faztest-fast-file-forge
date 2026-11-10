@@ -1,9 +1,8 @@
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { which } from "bun";
 import { afterEach, describe, expect, it } from "vitest";
 
 const execFile = promisify(execFileCallback);
@@ -67,9 +66,11 @@ describe("Faztest command-line compressor", () => {
     const { stdout } = await execFile(process.execPath, [script, "bench", input, "--iterations", "1"]);
     expect(stdout).toContain("Faztest · Brotli q5");
     expect(stdout).toContain("COMPRESSION COMPARISON");
-    if (which("xz")) expect(stdout).toContain("xz · -5");
+    if (spawnSync("xz", ["--version"], { stdio: "ignore" }).status === 0)
+      expect(stdout).toContain("xz · -5");
     else expect(stdout).toContain("xz is not installed; skipped");
-    if (which("7z")) expect(stdout).toContain("7-Zip · LZMA2 level 5");
+    if (spawnSync("7z", ["i"], { stdio: "ignore" }).status === 0)
+      expect(stdout).toContain("7-Zip · LZMA2 level 5");
     else expect(stdout).toContain("7-Zip is not installed; skipped");
     expect(stdout).toContain("median of trials");
   });
