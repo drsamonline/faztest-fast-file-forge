@@ -30,4 +30,5 @@ use the editor.
 <!-- LOVABLE:END -->
 
 ## Faztest CLI
-- Keep the standalone Node.js compressor and benchmark in `public/faztest.mjs`; the `/` page must offer this same downloadable script rather than claiming to compress local files in the browser.
+- Keep `public/faztest.mjs` as the portable local command-line compressor; browser compression and extraction run in WebAssembly workers so private files never reach the server.
+- Keep external-format CLI benchmarks as directly spawned executables, and verify every archive by extracting it and comparing the original bytes.
