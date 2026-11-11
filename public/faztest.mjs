@@ -46,6 +46,7 @@ export function parseArgs(args) {
     output: undefined,
     quality: DEFAULT_QUALITY,
     iterations: DEFAULT_ITERATIONS,
+    ziptastic: undefined,
     force: false,
   };
 
@@ -68,6 +69,12 @@ export function parseArgs(args) {
       }
       parsed.iterations = Number(value);
       index += 1;
+    } else if (flag === "--ziptastic") {
+      if (!value || value.startsWith("-")) {
+        throw new Error("--ziptastic requires the path to your Ziptastic executable.");
+      }
+      parsed.ziptastic = value;
+      index += 1;
     } else if (flag === "-f" || flag === "--force") {
       parsed.force = true;
     } else if (flag === "--help" || flag === "-h") {
@@ -86,6 +93,9 @@ export function parseArgs(args) {
   }
   if (parsed.operation === "bench" && parsed.output) {
     throw new Error("The output option is only for compress or decompress.");
+  }
+  if (parsed.operation !== "bench" && parsed.ziptastic) {
+    throw new Error("The --ziptastic option is only for benchmarking.");
   }
 
   return parsed;
@@ -302,6 +312,32 @@ async function benchFile({ input, iterations }) {
       console.log("7-Zip is not installed; skipped (install 7-Zip to include it).\n");
     }
 
+  const ziptastic = await (async () => {
+    if (!ziptasticExecutable) return "ziptastic";
+    return ziptasticExecutable;
+  })();
+  if (await commandAvailable(ziptastic, ["version"])) {
+    const times = [];
+    let size = 0;
+    for (let trial = 0; trial < iterations; trial += 1) {
+      const archive = path.join(scratch, `ziptastic-${trial}.dr`);
+      const restored = path.join(scratch, `ziptastic-${trial}.out`);
+      const started = performance.now();
+      await startProcess(ziptastic, ["c", "-9", "-f", "-o", archive, path.resolve(input)]);
+      times.push((performance.now() - started) / 1000);
+      size = (await stat(archive)).size;
+      await startProcess(ziptastic, ["d", "-f", "-o", restored, archive]);
+      if (sha256(await readFile(restored)) !== originalHash) {
+        throw new Error("Ziptastic output failed byte-for-byte verification.");
+      }
+    }
+    results.push({ name: "Ziptastic · CHCE -9 (.dr)", size, seconds: median(times) });
+  } else if (requestedZiptastic) {
+    throw new Error(`The Ziptastic executable was not found or could not run: ${requestedZiptastic}`);
+  } else {
+    console.log("Ziptastic was not found on PATH; pass --ziptastic /path/to/ziptastic to include it.\n");
+  }
+
     const labelWidth = Math.max(...results.map((result) => result.name.length), 22);
     console.log("COMPRESSION COMPARISON (median of trials)");
     console.log(`${"Method".padEnd(labelWidth)}  ${"Size".padStart(11)}  ${"Smaller".padStart(9)}  ${"Time".padStart(9)}  Speed`);
@@ -318,7 +354,7 @@ async function benchFile({ input, iterations }) {
     }
 
     console.log("\nBenchmarks measure compression time and output size only, not extraction speed.");
-    console.log("7-Zip archives include container metadata; their sizes are not directly identical to Brotli streams.");
+    console.log("7-Zip archives include container metadata; Brotli, xz, and .dr have different framing and transforms.");
     console.log("Try several representative files before drawing conclusions.");
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -329,14 +365,15 @@ export const USAGE = `Faztest — Brotli file compression, no extra packages\n\n
   `Usage:\n` +
   `  node faztest.mjs compress <file> [-q 0..11] [-o <file>] [--force]\n` +
   `  node faztest.mjs decompress <file.br> [-o <file>] [--force]\n` +
-  `  node faztest.mjs bench <file> [-n 1..20]\n\n` +
+  `  node faztest.mjs bench <file> [-n 1..20] [--ziptastic <path>]\n\n` +
   `Examples:\n` +
   `  node faztest.mjs compress ./notes.txt\n` +
   `  node faztest.mjs decompress ./notes.txt.br\n` +
-  `  node faztest.mjs bench ./notes.txt --iterations 3\n\n` +
+  `  node faztest.mjs bench ./notes.txt --iterations 3\n` +
+  `  node faztest.mjs bench ./game-assets.tar --ziptastic ./ziptastic\n\n` +
   `Compression quality ranges from 0 (faster) to 11 (smaller, often slower); default: 5.\n` +
   `Bench runs three trials at levels 1, 5, and 9 for each installed tool.\n` +
-  `Install xz and/or 7-Zip separately to include them in comparisons.`;
+  `Install xz and/or 7-Zip separately; put Ziptastic on PATH or pass --ziptastic <path>.`;
 
 export async function runCli(args = process.argv.slice(2)) {
   let options;

@@ -6,16 +6,18 @@ type WorkerMessage = {
   quality: number;
 };
 
+type BenchmarkResult = {
+  quality: number;
+  bytes: number;
+  milliseconds: number;
+  reduction: number;
+};
+
 type WorkerResult = {
   type: "complete";
   operation: WorkerMessage["type"];
   output: ArrayBuffer;
-  results?: Array<{
-    quality: number;
-    bytes: number;
-    milliseconds: number;
-    reduction: number;
-  }>;
+  results?: BenchmarkResult[];
 } | {
   type: "error";
   message: string;
@@ -41,7 +43,7 @@ globalThis.addEventListener("message", async (event: MessageEvent<WorkerMessage>
     const { buffer, type, quality } = event.data;
     const source = new Uint8Array(buffer);
     let output: Uint8Array;
-    let results: WorkerResult extends { type: "complete"; results?: infer R } ? R : never;
+    let results: BenchmarkResult[] | undefined;
 
     if (type === "compress") {
       output = brotli.compress(source, { quality });
