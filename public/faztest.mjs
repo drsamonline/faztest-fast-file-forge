@@ -13,6 +13,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const DEFAULT_QUALITY = 5;
 const QUALITIES = [1, 5, 9];
 const DEFAULT_ITERATIONS = 3;
+const ZIPTASTIC_VERSION = "1.4.1";
+const ZIPTASTIC_RELEASE_SHA256 = "6bf0ee9f0bbfaf0430833fe26bda14c60a8abecc32926cf7b165b9bd2a2c9d33";
+const ZIPTASTIC_LINUX_X64_URL =
+  "https://github.com/drsamonline/ziptastic/releases/download/v1.4.1/ziptastic-1.4.1-linux-x86_64";
 
 export function compressBuffer(input, quality = DEFAULT_QUALITY) {
   if (!Number.isInteger(quality) || quality < 0 || quality > 11) {
@@ -75,6 +79,8 @@ export function parseArgs(args) {
       }
       parsed.ziptastic = value;
       index += 1;
+    } else if (flag === "--no-ziptastic") {
+      parsed.ziptastic = false;
     } else if (flag === "-f" || flag === "--force") {
       parsed.force = true;
     } else if (flag === "--help" || flag === "-h") {
@@ -94,8 +100,8 @@ export function parseArgs(args) {
   if (parsed.operation === "bench" && parsed.output) {
     throw new Error("The output option is only for compress or decompress.");
   }
-  if (parsed.operation !== "bench" && parsed.ziptastic) {
-    throw new Error("The --ziptastic option is only for benchmarking.");
+  if (parsed.ziptastic && parsed.operation === "compress") {
+    throw new Error("--ziptastic currently supports decompression and benchmarking.");
   }
 
   return parsed;
@@ -109,10 +115,12 @@ export function formatBytes(bytes) {
 
 function summarize(operation, input, output, started) {
   const seconds = (performance.now() - started) / 1000;
-  const reduction = input.length === 0 ? "—" : `${((1 - output.length / input.length) * 100).toFixed(1)}%`;
+  const reduction = input.length === 0 || operation === "Decompression"
+    ? "—"
+    : `${((1 - output.length / input.length) * 100).toFixed(1)}%`;
   console.log(`${operation} complete`);
   console.log(`  Original:  ${formatBytes(input.length)}`);
-  console.log(`  Result:    ${formatBytes(output.length)} (${reduction} smaller)`);
+  console.log(`  Result:    ${formatBytes(output.length)}${operation === "Decompression" ? " restored" : ` (${reduction} smaller)`}`);
   console.log(`  Time:      ${seconds.toFixed(3)} s`);
 }
 
@@ -164,10 +172,18 @@ async function decompressFile(options) {
   await assertSafeOutput(input, destination, force);
   const bytes = await readFile(input);
   const started = performance.now();
-  const decompressed = decompressBuffer(bytes);
-  await saveOutput(destination, decompressed, force);
+  const ziptastic = options.ziptastic || "ziptastic";
+  if (input.toLowerCase().endsWith(".dr") && await commandAvailable(ziptastic, ["version"])) {
+    await startProcess(ziptastic, ["d", ...(force ? ["-f"] : []), "-o", destination, path.resolve(input)]);
+  } else if (input.toLowerCase().endsWith(".dr")) {
+    throw new Error("This is a Ziptastic .dr archive; pass --ziptastic /path/to/ziptastic to restore it.");
+  } else {
+    const decompressed = decompressBuffer(bytes);
+    await saveOutput(destination, decompressed, force);
+  }
+  const restored = await readFile(destination);
   console.log(`Saved ${destination}`);
-  summarize("Decompression", bytes, decompressed, started);
+  summarize("Decompression", bytes, restored, started);
 }
 
 function startProcess(command, args, outputPath) {
@@ -221,6 +237,53 @@ async function commandAvailable(command, args) {
   }
 }
 
+async function verifyZiptastic(command) {
+  try {
+    const executable = await stat(command);
+    if (executable.isFile()) return await commandAvailable(command, ["version"]);
+  } catch {}
+  return commandAvailable(command, ["version"]);
+}
+
+async function prepareZiptastic({ requested, directory }) {
+  if (requested === false) return undefined;
+  const candidate = requested ?? "ziptastic";
+  if (await verifyZiptastic(candidate)) return candidate;
+  if (requested) {
+    throw new Error(`The Ziptastic executable was not found or could not run: ${requested}`);
+  }
+  if (process.platform !== "linux" || process.arch !== "x64") {
+    console.log("Automatic Ziptastic download is available for Linux x64 only; pass --ziptastic <path> or --no-ziptastic.\n");
+    return undefined;
+  }
+
+  console.log(`Fetching the official Ziptastic v${ZIPTASTIC_VERSION} Linux x64 release for this benchmark.`);
+  try {
+    const response = await fetch(ZIPTASTIC_LINUX_X64_URL, { signal: AbortSignal.timeout(45_000) });
+    if (!response.ok) throw new Error(`Official Ziptastic download returned HTTP ${response.status}.`);
+    if (Number(response.headers.get("content-length")) > 5_000_000) {
+      throw new Error("The Ziptastic download exceeded the expected size limit.");
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 5_000_000) throw new Error("The Ziptastic download exceeded the expected size limit.");
+    if (sha256(bytes) !== ZIPTASTIC_RELEASE_SHA256) {
+      throw new Error("The downloaded Ziptastic release failed its published SHA-256 verification.");
+    }
+    const executable = path.join(directory, "ziptastic-1.4.1-linux-x86_64");
+    await writeFile(executable, bytes, { flag: "wx", mode: 0o700 });
+    await chmod(executable, 0o700);
+    if (!(await commandAvailable(executable, ["version"]))) {
+      throw new Error("The checksum-verified Ziptastic release could not run on this machine.");
+    }
+    console.log("Official Ziptastic v1.4.1 release verified against SHA-256 and ready for comparison.\n");
+    return executable;
+  } catch (error) {
+    console.log(`Ziptastic was not added to this comparison: ${error instanceof Error ? error.message : "download failed"}`);
+    console.log("Install the verified Ziptastic release and pass --ziptastic <path> to benchmark it.\n");
+    return undefined;
+  }
+}
+
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const midpoint = Math.floor(sorted.length / 2);
@@ -233,7 +296,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-async function benchFile({ input, iterations }) {
+async function benchFile({ input, iterations, ziptastic: requestedZiptastic }) {
   const original = await readFile(input);
   const originalHash = sha256(original);
   const scratch = await mkdtemp(path.join(tmpdir(), "faztest-bench-"));
@@ -312,31 +375,24 @@ async function benchFile({ input, iterations }) {
       console.log("7-Zip is not installed; skipped (install 7-Zip to include it).\n");
     }
 
-  const ziptastic = await (async () => {
-    if (!ziptasticExecutable) return "ziptastic";
-    return ziptasticExecutable;
-  })();
-  if (await commandAvailable(ziptastic, ["version"])) {
-    const times = [];
-    let size = 0;
-    for (let trial = 0; trial < iterations; trial += 1) {
-      const archive = path.join(scratch, `ziptastic-${trial}.dr`);
-      const restored = path.join(scratch, `ziptastic-${trial}.out`);
-      const started = performance.now();
-      await startProcess(ziptastic, ["c", "-9", "-f", "-o", archive, path.resolve(input)]);
-      times.push((performance.now() - started) / 1000);
-      size = (await stat(archive)).size;
-      await startProcess(ziptastic, ["d", "-f", "-o", restored, archive]);
-      if (sha256(await readFile(restored)) !== originalHash) {
-        throw new Error("Ziptastic output failed byte-for-byte verification.");
+    const ziptastic = await prepareZiptastic({ requested: requestedZiptastic, directory: scratch });
+    if (ziptastic) {
+      const times = [];
+      let size = 0;
+      for (let trial = 0; trial < iterations; trial += 1) {
+        const archive = path.join(scratch, `ziptastic-${trial}.dr`);
+        const restored = path.join(scratch, `ziptastic-${trial}.out`);
+        const started = performance.now();
+        await startProcess(ziptastic, ["c", "-9", "-f", "-o", archive, path.resolve(input)]);
+        times.push((performance.now() - started) / 1000);
+        size = (await stat(archive)).size;
+        await startProcess(ziptastic, ["d", "-f", "-o", restored, archive]);
+        if (sha256(await readFile(restored)) !== originalHash) {
+          throw new Error("Ziptastic output failed byte-for-byte verification.");
+        }
       }
+      results.push({ name: "Ziptastic · CHCE -9 (.dr)", size, seconds: median(times) });
     }
-    results.push({ name: "Ziptastic · CHCE -9 (.dr)", size, seconds: median(times) });
-  } else if (requestedZiptastic) {
-    throw new Error(`The Ziptastic executable was not found or could not run: ${requestedZiptastic}`);
-  } else {
-    console.log("Ziptastic was not found on PATH; pass --ziptastic /path/to/ziptastic to include it.\n");
-  }
 
     const labelWidth = Math.max(...results.map((result) => result.name.length), 22);
     console.log("COMPRESSION COMPARISON (median of trials)");
@@ -364,16 +420,18 @@ async function benchFile({ input, iterations }) {
 export const USAGE = `Faztest — Brotli file compression, no extra packages\n\n` +
   `Usage:\n` +
   `  node faztest.mjs compress <file> [-q 0..11] [-o <file>] [--force]\n` +
-  `  node faztest.mjs decompress <file.br> [-o <file>] [--force]\n` +
-  `  node faztest.mjs bench <file> [-n 1..20] [--ziptastic <path>]\n\n` +
+  `  node faztest.mjs decompress <file.br|file.dr> [-o <file>] [--force] [--ziptastic <path>]\n` +
+  `  node faztest.mjs bench <file> [-n 1..20] [--ziptastic <path>|--no-ziptastic]\n\n` +
   `Examples:\n` +
   `  node faztest.mjs compress ./notes.txt\n` +
   `  node faztest.mjs decompress ./notes.txt.br\n` +
   `  node faztest.mjs bench ./notes.txt --iterations 3\n` +
-  `  node faztest.mjs bench ./game-assets.tar --ziptastic ./ziptastic\n\n` +
+  `  node faztest.mjs bench ./game-assets.tar --ziptastic ./ziptastic\n` +
+  `  node faztest.mjs decompress ./game-assets.tar.dr --ziptastic ./ziptastic\n\n` +
   `Compression quality ranges from 0 (faster) to 11 (smaller, often slower); default: 5.\n` +
-  `Bench runs three trials at levels 1, 5, and 9 for each installed tool.\n` +
-  `Install xz and/or 7-Zip separately; put Ziptastic on PATH or pass --ziptastic <path>.`;
+  `Bench runs three trials at levels 1, 5, and 9 for each codec; Ziptastic uses its official -9 preset.\n` +
+  `xz and 7-Zip are detected automatically. Put Ziptastic v${ZIPTASTIC_VERSION} on PATH or use --ziptastic <path>.\n` +
+  `The official Ziptastic Linux x64 release checksum starts ${ZIPTASTIC_RELEASE_SHA256.slice(0, 16)}.`;
 
 export async function runCli(args = process.argv.slice(2)) {
   let options;

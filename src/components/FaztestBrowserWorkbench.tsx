@@ -135,6 +135,9 @@ export function FaztestBrowserWorkbench() {
   ];
 
   const fileLabel = mode === "decompress" ? ".br file" : "your file";
+  const ziptasticDownloaded = mode === "benchmark"
+    ? "Download the verified Ziptastic v1.4.1 executable, then compare it against xz and 7-Zip using Faztest’s command-line benchmark."
+    : "Run the command-line version below to compress or restore Ziptastic’s separate .dr format.";
 
   return (
     <section aria-labelledby="workbench-title" className="mt-10 border-t border-border pt-7">
@@ -340,7 +343,7 @@ export function FaztestBrowserWorkbench() {
           </div>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             Includes your published Ziptastic v1.4.1 Linux x86-64 binary in native CLI
-            benchmarks. Its special <span className="font-mono text-foreground">.dr</span> format
+            Its special <span className="font-mono text-foreground">.dr</span> format
             and archive-aware transforms are measured separately from Brotli.
           </p>
           <Button asChild type="button" variant="outline" size="sm" className="mt-3">
@@ -349,8 +352,8 @@ export function FaztestBrowserWorkbench() {
               Get Ziptastic for Linux x64
             </a>
           </Button>
-          <p className="mt-2 font-mono text-[10px] text-muted-foreground">
-            Native benchmarks need your local Ziptastic executable.
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            {ziptasticDownloaded}
           </p>
         </aside>
       </div>
