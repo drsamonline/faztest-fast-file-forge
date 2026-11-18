@@ -4,8 +4,6 @@ A Brotli front end for files you would rather not upload: compress and decompres
 browser (WebAssembly workers, nothing leaves the machine) or from a portable CLI,
 `public/faztest.mjs`.
 
-This project was built with [Lovable](https://lovable.dev).
-
 ## Measured
 
 Silesia corpus, twelve files, 211,938,580 bytes, one run per cell, every archive decoded back
@@ -40,14 +38,6 @@ node public/faztest.mjs bench photo.png               # against ziptastic, xz an
 
 The CLI refuses to overwrite an existing output without `--force`, and an unknown command
 exits non-zero rather than doing nothing.
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/9ddecf34-e17b-4805-baab-eeb59e4e1528).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
 ## Development
 
