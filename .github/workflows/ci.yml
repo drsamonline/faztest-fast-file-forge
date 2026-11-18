@@ -10,6 +10,9 @@ name: ci
 #             claimed to beat xz and 7z for as long as nothing checked it.
 #   cli     — the shipped CLI round-trips a file byte for byte, refuses to overwrite without
 #             --force, and exits non-zero on a command it does not implement.
+#   build   — the production build actually builds. It is not runnable in the 2 GiB development
+#             sandbox (Vite 8's rolldown is WebAssembly and dies against a 1.5 GB virtual-memory
+#             cap), so CI is the only place this claim can be tested.
 #
 # Nothing here downloads a corpus or measures a ratio: that is scripts/bench.py, run by hand on
 # a machine, because 200 MB of compression does not belong in a CI step.
@@ -38,6 +41,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: README numbers must exist in docs/FINDINGS.md
         run: python3 scripts/check-claims.py --verbose
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Install from the lockfile
+        run: bun install --frozen-lockfile
+      - name: Production build
+        run: bun run build
+      - name: The build emitted a server bundle
+        run: |
+          set -euo pipefail
+          echo "produced:"; ls -d dist .output 2>/dev/null || true
+          # Nitro writes .output/ by default; a config that overrides the output dir writes
+          # dist/server. Either is a real build; neither is a build that did nothing.
+          test -d .output || test -d dist/server
 
   cli:
     runs-on: ubuntu-latest
