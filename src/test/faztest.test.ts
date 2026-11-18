@@ -76,5 +76,5 @@ describe("Faztest command-line compressor", () => {
       expect(stdout).toContain("7-Zip · LZMA2 level 5");
     else expect(stdout).toContain("7-Zip is not installed; skipped");
     expect(stdout).toContain("median of trials");
-  });
+  }, 30_000); // a real bench spawns child processes; the 5 s default timed out every run
 });
