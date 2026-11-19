@@ -10,9 +10,10 @@ name: ci
 #             claimed to beat xz and 7z for as long as nothing checked it.
 #   cli     — the shipped CLI round-trips a file byte for byte, refuses to overwrite without
 #             --force, and exits non-zero on a command it does not implement.
-#   build   — the production build actually builds. It is not runnable in the 2 GiB development
-#             sandbox (Vite 8's rolldown is WebAssembly and dies against a 1.5 GB virtual-memory
-#             cap), so CI is the only place this claim can be tested.
+#   build   — the production build actually builds. Locally it needs the virtual-memory cap
+#             raised first (`ulimit -v unlimited`): the default 1.5 GB kills Vite 8's rolldown,
+#             which is WebAssembly, with "Cannot allocate Wasm memory for new instance". CI has
+#             no such cap, so this job is the standing check.
 #
 # Nothing here downloads a corpus or measures a ratio: that is scripts/bench.py, run by hand on
 # a machine, because 200 MB of compression does not belong in a CI step.
