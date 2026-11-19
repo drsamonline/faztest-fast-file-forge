@@ -51,6 +51,15 @@ bun run dev
 bun run test
 ```
 
+If `bun run build` dies with `RangeError: Cannot allocate Wasm memory for new instance`, the
+virtual-memory cap is the cause, not the code: Vite 8's rolldown is WebAssembly and the default
+`ulimit -v` of 1.5 GB is too small for it. Raise it in the shell you build from:
+
+```sh
+ulimit -v unlimited
+bun run build
+```
+
 CI runs the same three commands: `bun run test`, `scripts/check-claims.py`, and a CLI
-round-trip gate. The repository ships `bun.lock` and no `package-lock.json`, so `bun install
+round-trip gate, plus `bun run build`. The repository ships `bun.lock` and no `package-lock.json`, so `bun install
 --frozen-lockfile` is the reproducible install.
